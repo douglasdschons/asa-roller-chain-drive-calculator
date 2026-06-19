@@ -1,0 +1,44 @@
+```gitignore
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# IDE and editor settings
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Build and distribution files
+build/
+dist/
+*.egg-info/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Test and coverage outputs
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Matplotlib cache or generated temporary outputs
+.cache/
+
+# Local environment variables
+.env
+```
