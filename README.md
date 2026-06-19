@@ -1,4 +1,3 @@
-````markdown
 # ASA Roller Chain Drive Calculator
 
 Python tool for geometric calculation and corrected center distance of open ASA roller chain drives.
@@ -25,10 +24,10 @@ The project uses catalog dimensions extracted from an ASA roller chain reference
 
 For an open chain drive with two sprockets, the user usually defines:
 
-- the chain size;
-- the number of teeth of the smaller sprocket;
-- the number of teeth of the larger sprocket;
-- the desired center distance.
+* the chain size;
+* the number of teeth of the smaller sprocket;
+* the number of teeth of the larger sprocket;
+* the desired center distance.
 
 However, the desired center distance generates a theoretical chain path length that may not be compatible with an integer number of chain links.
 
@@ -42,21 +41,21 @@ The key technical step is that the corrected center distance is obtained by solv
 
 ## Features
 
-- Load ASA roller chain dimensions from a catalog CSV file
-- Select chain data by ASA chain size
-- Calculate sprocket pitch diameters
-- Calculate sprocket pitch radii
-- Calculate open-chain continuous path length
-- Estimate theoretical link count
-- Select integer number of links
-- Detect odd link count and offset link requirement
-- Calculate actual chain length
-- Solve corrected center distance
-- Calculate center distance correction
-- Calculate tangency points for the corrected geometry
-- Plot sprocket pitch circles, chain path and roller positions
-- Estimate total chain weight from catalog weight per meter
-- Generate a visual output of the chain drive geometry
+* Load ASA roller chain dimensions from a catalog CSV file
+* Select chain data by ASA chain size
+* Calculate sprocket pitch diameters
+* Calculate sprocket pitch radii
+* Calculate open-chain continuous path length
+* Estimate theoretical link count
+* Select integer number of links
+* Detect odd link count and offset link requirement
+* Calculate actual chain length
+* Solve corrected center distance
+* Calculate center distance correction
+* Calculate tangency points for the corrected geometry
+* Plot sprocket pitch circles, chain path and roller positions
+* Estimate total chain weight from catalog weight per meter
+* Generate a visual output of the chain drive geometry
 
 ---
 
@@ -64,70 +63,70 @@ The key technical step is that the corrected center distance is obtained by solv
 
 For a roller chain with pitch `p` and a sprocket with `z` teeth, the sprocket pitch diameter is calculated by:
 
-```math
+$$
 D_p = \frac{p}{\sin\left(\frac{\pi}{z}\right)}
-````
+$$
 
 For an open chain drive with pitch radii `r1` and `r2`, center distance `a`, and radius difference:
 
-```math
+$$
 \Delta r = r_2 - r_1
-```
+$$
 
 the continuous chain path length is:
 
-```math
+$$
 C_i(a) =
 \pi(r_1+r_2)
 +
 2\Delta r \arcsin\left(\frac{\Delta r}{a}\right)
 +
 2\sqrt{a^2-\Delta r^2}
-```
+$$
 
 The physically valid domain is:
 
-```math
+$$
 a > |\Delta r|
-```
+$$
 
 This condition ensures that the external tangent spans exist between the two sprocket pitch circles and that the square-root term remains real.
 
 The theoretical number of links is:
 
-```math
+$$
 n_i = \frac{C_i}{p}
-```
+$$
 
 The selected number of links is obtained by rounding the theoretical value:
 
-```math
-n = \operatorname{round}(n_i)
-```
+$$
+n = \mathrm{round}(n_i)
+$$
 
 The actual chain length is:
 
-```math
+$$
 C = np
-```
+$$
 
 After the link count is selected, the corrected center distance is obtained by solving the nonlinear error function:
 
-```math
+$$
 f(a) = C_i(a) - C
-```
+$$
 
 The corrected center distance `af` satisfies:
 
-```math
+$$
 f(a_f) = 0
-```
+$$
 
 which means:
 
-```math
+$$
 C_i(a_f) = C
-```
+$$
 
 ![Error function for corrected center distance](docs/figures/figure_3.png)
 
@@ -264,7 +263,7 @@ The calculation returns values such as:
 
 ## Project Structure
 
-The repository is currently organized as follows:
+The intended first-release repository structure is:
 
 ```text
 asa-roller-chain-drive-calculator/
@@ -458,6 +457,3 @@ Project focus: mechanical engineering, computational geometry, engineering calcu
 This software is provided for educational and preliminary engineering calculation purposes only.
 
 The results should not be used as the sole basis for final machine design without proper engineering verification, manufacturer data, load analysis and safety validation.
-
-```
-```
