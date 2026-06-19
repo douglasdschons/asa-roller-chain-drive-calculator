@@ -11,7 +11,7 @@ from matplotlib.patches import Circle
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data"
 
-CSV_PATH = DATA_DIR / "enco_asa_single_strand_chains.csv"
+CSV_PATH = DATA_DIR / "enco_asa_chains.csv"
 ASA_DIMENSIONS_IMAGE_STEM = "enco_asa_dimensions"
 
 
