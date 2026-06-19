@@ -14,6 +14,16 @@ DATA_DIR = APP_DIR / "data"
 CSV_PATH = DATA_DIR / "enco_asa_chains.csv"
 ASA_DIMENSIONS_IMAGE_STEM = "enco_asa_dimensions"
 
+GITHUB_REPOSITORY_URL = (
+    "https://github.com/douglasdschons/asa-roller-chain-drive-calculator"
+)
+
+LINKEDIN_PROFILE_URL = (
+    "https://www.linkedin.com/in/douglasdschons/?locale=pt"
+)
+
+INSTRUCTIONS_IMAGE_PATH = APP_DIR / "docs" / "figures" / "instructions.png"
+
 
 def load_chain_catalog(csv_path: str | Path) -> pd.DataFrame:
     """
@@ -221,7 +231,7 @@ def build_result_table_rows(result: dict) -> list[list[str]]:
 
     rows = [
         ["INPUT DATA", ""],
-        ["ASA size", f"ASA {chain_data.get('asa_size', '-')}"] ,
+        ["ASA size", f"ASA {chain_data.get('asa_size', '-')}"],
         ["Small sprocket teeth", str(inputs["small_sprocket_teeth"])],
         ["Large sprocket teeth", str(inputs["large_sprocket_teeth"])],
         [
@@ -1034,11 +1044,70 @@ def run_streamlit_app() -> None:
 
     st.markdown(
         """
-        Calculate the geometry of an open ASA roller chain drive using ENCO catalog data.
-        The app estimates sprocket pitch diameters, selected number of links, corrected
-        center distance, actual chain length, and total chain weight.
+        A technical calculator for open ASA roller chain drives.
+
+        This app calculates sprocket pitch diameters, theoretical chain length,
+        selected integer link count, actual chain length, corrected center distance,
+        offset-link requirement, and estimated total chain weight using ENCO ASA
+        roller chain catalog data.
         """
     )
+
+    link_col_1, link_col_2, link_col_3 = st.columns(3)
+
+    with link_col_1:
+        st.link_button(
+            "GitHub repository",
+            GITHUB_REPOSITORY_URL,
+            width="stretch",
+        )
+
+    with link_col_2:
+        if LINKEDIN_PROFILE_URL.startswith("https://"):
+            st.link_button(
+                "LinkedIn profile",
+                LINKEDIN_PROFILE_URL,
+                width="stretch",
+            )
+        else:
+            st.caption("LinkedIn link not configured yet.")
+
+    with link_col_3:
+        st.link_button(
+            "Open live app",
+            "https://asa-roller-chain-drive-calculator.streamlit.app/",
+            width="stretch",
+        )
+
+    st.divider()
+
+    st.subheader("How to use this calculator")
+
+    st.markdown(
+        """
+        Use the sidebar to define the chain drive configuration:
+
+        1. Select the ASA chain size.
+        2. Enter the number of teeth of the smaller sprocket.
+        3. Enter the number of teeth of the larger sprocket.
+        4. Enter the desired center distance.
+        5. Click **Calculate** to generate the corrected geometry.
+        """
+    )
+
+    if INSTRUCTIONS_IMAGE_PATH.exists(): 
+        st.image(
+            INSTRUCTIONS_IMAGE_PATH,
+            caption="Input parameters used by the ASA roller chain drive calculator.",
+            width="stretch",
+        )
+    else:
+        st.warning(
+            "Instruction image not found. Expected file: "
+            f"{INSTRUCTIONS_IMAGE_PATH}"
+        )
+
+    st.divider()
 
     try:
         catalog = load_chain_catalog_cached(str(CSV_PATH))
