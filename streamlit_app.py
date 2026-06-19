@@ -1,18 +1,21 @@
 from math import pi, sin, asin, sqrt, floor, atan2, cos
 from pathlib import Path
 
-import pandas as pd
-import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+import pandas as pd
 import streamlit as st
 from matplotlib.patches import Circle
 
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = APP_DIR / "data"
+FIGURES_DIR = APP_DIR / "docs" / "figures"
 
 CSV_PATH = DATA_DIR / "enco_asa_chains.csv"
-ASA_DIMENSIONS_IMAGE_STEM = "enco_asa_dimensions"
+
+INSTRUCTIONS_IMAGE_PATH = FIGURES_DIR / "instructions.png"
+ASA_DIMENSIONS_IMAGE_PATH = FIGURES_DIR / "enco_asa_dimensions.png"
 
 GITHUB_REPOSITORY_URL = (
     "https://github.com/douglasdschons/asa-roller-chain-drive-calculator"
@@ -21,8 +24,6 @@ GITHUB_REPOSITORY_URL = (
 LINKEDIN_PROFILE_URL = (
     "https://www.linkedin.com/in/douglasdschons/?locale=pt"
 )
-
-INSTRUCTIONS_IMAGE_PATH = APP_DIR / "docs" / "figures" / "instructions.png"
 
 
 def load_chain_catalog(csv_path: str | Path) -> pd.DataFrame:
@@ -89,7 +90,7 @@ def load_chain_catalog_cached(csv_path_as_string: str) -> pd.DataFrame:
 
 def normalize_asa_size(asa_size: str | int) -> str:
     """
-    Normalize user input such as 'ASA 80', 'ASA80', '80', or '80-1' to '80'.
+    Normalize input such as 'ASA 80', 'ASA80', '80', or '80-1' to '80'.
     """
     asa_size = str(asa_size).upper().replace("ASA", "").strip()
 
@@ -122,40 +123,9 @@ def to_float(value) -> float:
     return float(value)
 
 
-def find_reference_image(data_dir: Path, image_stem: str) -> Path | None:
-    """
-    Find a reference image by file stem.
-
-    Accepted extensions:
-        .png, .jpg, .jpeg, .webp, .bmp
-    """
-    allowed_extensions = [".png", ".jpg", ".jpeg", ".webp", ".bmp"]
-
-    for extension in allowed_extensions:
-        image_path = data_dir / f"{image_stem}{extension}"
-
-        if image_path.exists():
-            return image_path
-
-    for image_path in data_dir.glob(f"{image_stem}.*"):
-        if image_path.suffix.lower() in allowed_extensions:
-            return image_path
-
-    return None
-
-
 def get_chain_data(catalog: pd.DataFrame, asa_size: str | int) -> dict:
     """
     Return catalog data for a selected ASA chain size.
-
-    ENCO notation:
-        P = pitch
-        E = inner width
-        R = roller diameter
-        H = plate height
-        G = pin diameter
-        L = overall width
-        T = plate thickness
     """
     asa_size = normalize_asa_size(asa_size)
 
@@ -188,7 +158,6 @@ def get_chain_data(catalog: pd.DataFrame, asa_size: str | int) -> dict:
     for column in numeric_columns:
         chain_data[column] = to_float(chain_data[column])
 
-    # Compatibility aliases for the current calculation and plotting functions
     chain_data["pitch_mm"] = chain_data["pitch_P_mm"]
     chain_data["roller_diameter_mm"] = chain_data["roller_diameter_R_mm"]
     chain_data["pin_diameter_mm"] = chain_data["pin_diameter_G_mm"]
@@ -210,24 +179,29 @@ def format_catalog_value(value, unit: str = "", decimals: int = 2) -> str:
         return str(value)
 
 
+def calculate_total_chain_weight_kg(result: dict) -> float:
+    """
+    Calculate total chain weight from actual chain length and catalog weight per meter.
+    """
+    chain_data = result["chain_data"]
+    chain_links = result["chain_links"]
+
+    actual_chain_length_m = chain_links["actual_chain_length_mm"] / 1000
+    weight_kg_per_m = chain_data["weight_kg_per_m"]
+
+    return actual_chain_length_m * weight_kg_per_m
+
+
 def build_result_table_rows(result: dict) -> list[list[str]]:
     """
     Build organized rows for the final result table.
-
-    The table is divided into:
-        - input data;
-        - calculated drive geometry;
-        - selected chain dimensions.
     """
     chain_data = result["chain_data"]
     inputs = result["inputs"]
     pitch_diameters = result["pitch_diameters"]
     chain_links = result["chain_links"]
     corrected_geometry = result["corrected_geometry"]
-
-    actual_chain_length_m = chain_links["actual_chain_length_mm"] / 1000
-    weight_kg_per_m = chain_data["weight_kg_per_m"]
-    total_chain_weight_kg = actual_chain_length_m * weight_kg_per_m
+    total_chain_weight_kg = calculate_total_chain_weight_kg(result)
 
     rows = [
         ["INPUT DATA", ""],
@@ -238,7 +212,6 @@ def build_result_table_rows(result: dict) -> list[list[str]]:
             "Desired center distance",
             f"{inputs['desired_center_distance_mm']:.2f} mm",
         ],
-
         ["CALCULATED DRIVE GEOMETRY", ""],
         [
             "Small sprocket pitch diameter",
@@ -272,7 +245,6 @@ def build_result_table_rows(result: dict) -> list[list[str]]:
             "Requires offset link",
             str(chain_links["requires_offset_link"]),
         ],
-
         ["CHAIN DIMENSIONS", ""],
         [
             "Pitch P",
@@ -334,12 +306,10 @@ def style_result_table(table, section_titles: list[str]) -> None:
     for (row_index, column_index), cell in table.get_celld().items():
         cell.set_linewidth(0.5)
 
-        # Header row created by colLabels
         if row_index == 0:
             cell.set_text_props(weight="bold")
             cell.set_height(0.055)
 
-        # Data rows start at row_index = 1 because of colLabels
         if row_index > 0:
             cell_text = table[(row_index, 0)].get_text().get_text()
 
@@ -814,14 +784,6 @@ def interpolate_points_along_path(
 def build_chain_drive_figure(result: dict):
     """
     Build and return the corrected chain drive geometry figure.
-
-    This figure includes:
-        - chain pitch line;
-        - sprocket pitch circles;
-        - sprocket centers;
-        - roller circles along the pitch path;
-        - selected chain dimensions table;
-        - ASA dimensions reference image.
     """
     chain_data = result["chain_data"]
     pitch_radii = result["pitch_radii"]
@@ -866,7 +828,6 @@ def build_chain_drive_figure(result: dict):
     ax_table = fig.add_subplot(grid[0, 1])
     ax_image = fig.add_subplot(grid[1, 1])
 
-    # Main chain pitch path
     ax_geometry.plot(
         x_values,
         y_values,
@@ -874,7 +835,6 @@ def build_chain_drive_figure(result: dict):
         label="Chain pitch line",
     )
 
-    # Sprocket pitch circles
     small_pitch_circle = Circle(
         point_a,
         small_pitch_radius_mm,
@@ -894,7 +854,6 @@ def build_chain_drive_figure(result: dict):
     ax_geometry.add_patch(small_pitch_circle)
     ax_geometry.add_patch(large_pitch_circle)
 
-    # Roller circles along the pitch path
     for roller_center in roller_centers:
         roller = Circle(
             roller_center,
@@ -904,7 +863,6 @@ def build_chain_drive_figure(result: dict):
         )
         ax_geometry.add_patch(roller)
 
-    # Sprocket centers
     ax_geometry.scatter(
         point_a[0],
         point_a[1],
@@ -919,7 +877,6 @@ def build_chain_drive_figure(result: dict):
         label="Large sprocket center",
     )
 
-    # Corrected center distance line
     ax_geometry.plot(
         [point_a[0], point_b[0]],
         [point_a[1], point_b[1]],
@@ -956,7 +913,6 @@ def build_chain_drive_figure(result: dict):
         f"{corrected_geometry['corrected_center_distance_mm']:.2f} mm"
     )
 
-    # Technical dimensions table
     ax_table.axis("off")
 
     table_rows = build_result_table_rows(result)
@@ -981,23 +937,18 @@ def build_chain_drive_figure(result: dict):
         ],
     )
 
-    # ASA dimensions reference image
     ax_image.axis("off")
 
-    reference_image_path = find_reference_image(
-        data_dir=DATA_DIR,
-        image_stem=ASA_DIMENSIONS_IMAGE_STEM,
-    )
-
-    if reference_image_path is not None:
-        reference_image = mpimg.imread(reference_image_path)
+    if ASA_DIMENSIONS_IMAGE_PATH.exists():
+        reference_image = mpimg.imread(ASA_DIMENSIONS_IMAGE_PATH)
         ax_image.imshow(reference_image)
+        ax_image.set_title("ASA chain dimensions")
     else:
         ax_image.text(
             0.5,
             0.5,
             "Reference image not found:\n"
-            f"{DATA_DIR / ASA_DIMENSIONS_IMAGE_STEM}",
+            f"{ASA_DIMENSIONS_IMAGE_PATH}",
             ha="center",
             va="center",
         )
@@ -1017,17 +968,28 @@ def result_to_dataframe(result: dict) -> pd.DataFrame:
     )
 
 
-def calculate_total_chain_weight_kg(result: dict) -> float:
+def render_project_links() -> None:
     """
-    Calculate total chain weight from actual chain length and catalog weight per meter.
+    Render project and author links at the bottom of the app.
     """
-    chain_data = result["chain_data"]
-    chain_links = result["chain_links"]
+    st.divider()
+    st.subheader("Project links")
 
-    actual_chain_length_m = chain_links["actual_chain_length_mm"] / 1000
-    weight_kg_per_m = chain_data["weight_kg_per_m"]
+    link_col_1, link_col_2 = st.columns(2)
 
-    return actual_chain_length_m * weight_kg_per_m
+    with link_col_1:
+        st.link_button(
+            "GitHub repository",
+            GITHUB_REPOSITORY_URL,
+            width="stretch",
+        )
+
+    with link_col_2:
+        st.link_button(
+            "LinkedIn profile",
+            LINKEDIN_PROFILE_URL,
+            width="stretch",
+        )
 
 
 def run_streamlit_app() -> None:
@@ -1053,32 +1015,6 @@ def run_streamlit_app() -> None:
         """
     )
 
-    link_col_1, link_col_2, link_col_3 = st.columns(3)
-
-    with link_col_1:
-        st.link_button(
-            "GitHub repository",
-            GITHUB_REPOSITORY_URL,
-            width="stretch",
-        )
-
-    with link_col_2:
-        if LINKEDIN_PROFILE_URL.startswith("https://"):
-            st.link_button(
-                "LinkedIn profile",
-                LINKEDIN_PROFILE_URL,
-                width="stretch",
-            )
-        else:
-            st.caption("LinkedIn link not configured yet.")
-
-    with link_col_3:
-        st.link_button(
-            "Open live app",
-            "https://asa-roller-chain-drive-calculator.streamlit.app/",
-            width="stretch",
-        )
-
     st.divider()
 
     st.subheader("How to use this calculator")
@@ -1095,7 +1031,7 @@ def run_streamlit_app() -> None:
         """
     )
 
-    if INSTRUCTIONS_IMAGE_PATH.exists(): 
+    if INSTRUCTIONS_IMAGE_PATH.exists():
         st.image(
             INSTRUCTIONS_IMAGE_PATH,
             caption="Input parameters used by the ASA roller chain drive calculator.",
@@ -1161,6 +1097,7 @@ def run_streamlit_app() -> None:
 
     if not calculate_button:
         st.info("Set the input data in the sidebar and click Calculate.")
+        render_project_links()
         st.stop()
 
     try:
@@ -1224,7 +1161,11 @@ def run_streamlit_app() -> None:
 
     with st.expander("Selected chain catalog data"):
         selected_chain_table = pd.DataFrame([result["chain_data"]])
-        st.dataframe(selected_chain_table, use_container_width=True, hide_index=True)
+        st.dataframe(
+            selected_chain_table,
+            use_container_width=True,
+            hide_index=True,
+        )
 
     with st.expander("Notes"):
         st.markdown(
@@ -1235,6 +1176,8 @@ def run_streamlit_app() -> None:
             - The plot represents the pitch path and roller positions schematically.
             """
         )
+
+    render_project_links()
 
 
 if __name__ == "__main__":
