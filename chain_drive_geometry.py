@@ -6,12 +6,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
+from discrete_solver import (
+    build_exact_pitch_path,
+    calculate_discrete_chain_drive_geometry,
+)
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"
 
-CSV_PATH = DATA_DIR / "enco_asa_single_strand_chains.csv"
+CSV_PATH = DATA_DIR / "enco_asa_chains.csv"
 ASA_DIMENSIONS_IMAGE_STEM = "enco_asa_dimensions"
 
 
@@ -246,7 +250,7 @@ def build_result_table_rows(result: dict) -> list[list[str]]:
             f"{pitch_diameters['large_pitch_diameter_mm']:.2f} mm",
         ],
         [
-            "Theoretical link count",
+            "Continuous link-count estimate",
             f"{chain_links['theoretical_link_count']:.2f}",
         ],
         [
@@ -254,16 +258,24 @@ def build_result_table_rows(result: dict) -> list[list[str]]:
             str(chain_links["selected_link_count"]),
         ],
         [
-            "Actual chain length",
+            "Nominal discrete chain length (N*p)",
             f"{chain_links['actual_chain_length_mm']:.2f} mm",
         ],
         [
             "Corrected center distance",
-            f"{corrected_geometry['corrected_center_distance_mm']:.2f} mm",
+            f"{corrected_geometry['corrected_center_distance_mm']:.9f} mm",
         ],
         [
             "Center distance correction",
-            f"{corrected_geometry['center_distance_correction_mm']:.2f} mm",
+            f"{corrected_geometry['center_distance_correction_mm']:.9f} mm",
+        ],
+        [
+            "Rigid-link closure residual",
+            f"{corrected_geometry['closure_residual_mm']:.3e} mm",
+        ],
+        [
+            "Maximum pitch error",
+            f"{corrected_geometry['maximum_pitch_error_mm']:.3e} mm",
         ],
         [
             "Requires offset link",
@@ -500,11 +512,18 @@ def calculate_chain_drive_geometry(
     small_sprocket_teeth: int,
     large_sprocket_teeth: int,
     desired_center_distance_mm: float,
+    require_even_link_count: bool = False,
+    link_count_search_radius: int = 3,
 ) -> dict:
     """
-    Calculate the geometry of an open roller chain drive.
+    Calculate an open drive using the exact rigid-link closure solver.
+
+    The continuous pitch-circle path is retained as an initial estimate and as
+    the roller-center locus.  It is not used as the final physical closure
+    equation.  Final closure is obtained by walking rigid pitch chords and
+    correcting center distance until N steps close the loop.
     """
-    pitch_mm = chain_data["pitch_mm"]
+    pitch_mm = float(chain_data["pitch_mm"])
 
     if pitch_mm <= 0:
         raise ValueError("The chain pitch must be positive.")
@@ -517,136 +536,43 @@ def calculate_chain_drive_geometry(
             "small_sprocket_teeth must be less than or equal to large_sprocket_teeth."
         )
 
-    small_pitch_diameter_mm = calculate_pitch_diameter(
-        pitch_mm=pitch_mm,
-        teeth=small_sprocket_teeth,
+    initial_path = build_exact_pitch_path(
+        pitch_mm,
+        small_sprocket_teeth,
+        large_sprocket_teeth,
+        desired_center_distance_mm,
     )
-
-    large_pitch_diameter_mm = calculate_pitch_diameter(
+    discrete = calculate_discrete_chain_drive_geometry(
         pitch_mm=pitch_mm,
-        teeth=large_sprocket_teeth,
+        small_sprocket_teeth=small_sprocket_teeth,
+        large_sprocket_teeth=large_sprocket_teeth,
+        desired_center_distance_mm=desired_center_distance_mm,
+        require_even_link_count=require_even_link_count,
+        link_count_search_radius=link_count_search_radius,
     )
+    corrected_path = discrete["path"]
 
-    small_pitch_radius_mm = small_pitch_diameter_mm / 2
-    large_pitch_radius_mm = large_pitch_diameter_mm / 2
+    small_pitch_radius_mm = float(discrete["small_pitch_radius_mm"])
+    large_pitch_radius_mm = float(discrete["large_pitch_radius_mm"])
+    small_pitch_diameter_mm = 2.0 * small_pitch_radius_mm
+    large_pitch_diameter_mm = 2.0 * large_pitch_radius_mm
     radius_difference_mm = large_pitch_radius_mm - small_pitch_radius_mm
 
-    if desired_center_distance_mm <= abs(radius_difference_mm):
-        raise ValueError(
-            "The desired center distance must be greater than the radius difference."
-        )
-
-    initial_sine = radius_difference_mm / desired_center_distance_mm
-    initial_angle_rad = asin(initial_sine)
-    initial_straight_length_mm = sqrt(
-        desired_center_distance_mm**2 - radius_difference_mm**2
-    )
-
-    initial_small_wrap_angle_rad = pi - 2 * initial_angle_rad
-    initial_large_wrap_angle_rad = pi + 2 * initial_angle_rad
-
-    initial_small_arc_length_mm = (
-        small_pitch_radius_mm * initial_small_wrap_angle_rad
-    )
-    initial_large_arc_length_mm = (
-        large_pitch_radius_mm * initial_large_wrap_angle_rad
-    )
-
-    initial_chain_path_length_mm = (
-        initial_small_arc_length_mm
-        + initial_large_arc_length_mm
-        + 2 * initial_straight_length_mm
-    )
-
+    initial_segments = initial_path["segments"]
+    corrected_segments = corrected_path["segments"]
+    initial_chain_path_length_mm = float(initial_path["total_length_mm"])
+    corrected_continuous_path_length_mm = float(corrected_path["total_length_mm"])
     theoretical_link_count = initial_chain_path_length_mm / pitch_mm
-    selected_link_count = round_to_nearest_integer(theoretical_link_count)
-
-    actual_chain_length_mm = selected_link_count * pitch_mm
+    selected_link_count = int(discrete["link_count"])
+    actual_chain_length_mm = float(discrete["discrete_chain_length_mm"])
     chain_length_error_mm = actual_chain_length_mm - initial_chain_path_length_mm
 
-    requires_offset_link = selected_link_count % 2 != 0
-
-    def center_distance_error(center_distance_mm: float) -> float:
-        return (
-            calculate_chain_path_length(
-                center_distance_mm=center_distance_mm,
-                small_pitch_radius_mm=small_pitch_radius_mm,
-                large_pitch_radius_mm=large_pitch_radius_mm,
-            )
-            - actual_chain_length_mm
-        )
-
-    lower_limit = abs(radius_difference_mm) + 1e-6
-    upper_limit = max(
-        desired_center_distance_mm,
-        actual_chain_length_mm,
-        abs(radius_difference_mm) + 1,
-    )
-
-    while center_distance_error(upper_limit) < 0:
-        upper_limit *= 2
-
-    corrected_center_distance_mm = solve_bisection(
-        function=center_distance_error,
-        lower_limit=lower_limit,
-        upper_limit=upper_limit,
-    )
-
-    center_distance_correction_mm = (
-        corrected_center_distance_mm - desired_center_distance_mm
-    )
-
-    corrected_sine = radius_difference_mm / corrected_center_distance_mm
-    corrected_cosine = (
-        sqrt(corrected_center_distance_mm**2 - radius_difference_mm**2)
-        / corrected_center_distance_mm
-    )
-    corrected_angle_rad = asin(corrected_sine)
-    corrected_straight_length_mm = sqrt(
-        corrected_center_distance_mm**2 - radius_difference_mm**2
-    )
-
-    corrected_small_wrap_angle_rad = pi - 2 * corrected_angle_rad
-    corrected_large_wrap_angle_rad = pi + 2 * corrected_angle_rad
-
-    corrected_small_arc_length_mm = (
-        small_pitch_radius_mm * corrected_small_wrap_angle_rad
-    )
-    corrected_large_arc_length_mm = (
-        large_pitch_radius_mm * corrected_large_wrap_angle_rad
-    )
-
-    point_a = (0.0, 0.0)
-    point_b = (corrected_center_distance_mm, 0.0)
-
-    point_c = (
-        -small_pitch_radius_mm * corrected_sine,
-        small_pitch_radius_mm * corrected_cosine,
-    )
-
-    point_d = (
-        -small_pitch_radius_mm * corrected_sine,
-        -small_pitch_radius_mm * corrected_cosine,
-    )
-
-    point_f = (
-        corrected_center_distance_mm - large_pitch_radius_mm * corrected_sine,
-        large_pitch_radius_mm * corrected_cosine,
-    )
-
-    point_e = (
-        corrected_center_distance_mm - large_pitch_radius_mm * corrected_sine,
-        -large_pitch_radius_mm * corrected_cosine,
-    )
-
-    checked_chain_length_mm = (
-        corrected_small_arc_length_mm
-        + corrected_large_arc_length_mm
-        + corrected_straight_length_mm
-        + corrected_straight_length_mm
-    )
-
-    final_error_mm = checked_chain_length_mm - actual_chain_length_mm
+    point_a = corrected_path["small_center"]
+    point_b = corrected_path["large_center"]
+    point_c = corrected_path["upper_small_tangent"]
+    point_d = corrected_path["lower_small_tangent"]
+    point_e = corrected_path["lower_large_tangent"]
+    point_f = corrected_path["upper_large_tangent"]
 
     return {
         "chain_data": chain_data,
@@ -655,6 +581,7 @@ def calculate_chain_drive_geometry(
             "small_sprocket_teeth": small_sprocket_teeth,
             "large_sprocket_teeth": large_sprocket_teeth,
             "desired_center_distance_mm": desired_center_distance_mm,
+            "require_even_link_count": bool(require_even_link_count),
         },
         "pitch_diameters": {
             "small_pitch_diameter_mm": small_pitch_diameter_mm,
@@ -666,9 +593,9 @@ def calculate_chain_drive_geometry(
             "radius_difference_mm": radius_difference_mm,
         },
         "initial_geometry": {
-            "initial_straight_length_mm": initial_straight_length_mm,
-            "initial_small_arc_length_mm": initial_small_arc_length_mm,
-            "initial_large_arc_length_mm": initial_large_arc_length_mm,
+            "initial_straight_length_mm": float(initial_segments[1]["length"]),
+            "initial_small_arc_length_mm": float(initial_segments[0]["length"]),
+            "initial_large_arc_length_mm": float(initial_segments[2]["length"]),
             "initial_chain_path_length_mm": initial_chain_path_length_mm,
         },
         "chain_links": {
@@ -676,16 +603,24 @@ def calculate_chain_drive_geometry(
             "selected_link_count": selected_link_count,
             "actual_chain_length_mm": actual_chain_length_mm,
             "chain_length_error_mm": chain_length_error_mm,
-            "requires_offset_link": requires_offset_link,
+            "requires_offset_link": bool(discrete["requires_offset_link"]),
         },
         "corrected_geometry": {
-            "corrected_center_distance_mm": corrected_center_distance_mm,
-            "center_distance_correction_mm": center_distance_correction_mm,
-            "corrected_straight_length_mm": corrected_straight_length_mm,
-            "corrected_small_arc_length_mm": corrected_small_arc_length_mm,
-            "corrected_large_arc_length_mm": corrected_large_arc_length_mm,
-            "checked_chain_length_mm": checked_chain_length_mm,
-            "final_error_mm": final_error_mm,
+            "corrected_center_distance_mm": float(
+                discrete["corrected_center_distance_mm"]
+            ),
+            "center_distance_correction_mm": float(discrete["center_correction_mm"]),
+            "corrected_straight_length_mm": float(corrected_segments[1]["length"]),
+            "corrected_small_arc_length_mm": float(corrected_segments[0]["length"]),
+            "corrected_large_arc_length_mm": float(corrected_segments[2]["length"]),
+            "checked_chain_length_mm": corrected_continuous_path_length_mm,
+            "continuous_pitch_path_length_mm": corrected_continuous_path_length_mm,
+            "continuous_path_minus_discrete_length_mm": (
+                corrected_continuous_path_length_mm - actual_chain_length_mm
+            ),
+            "closure_residual_mm": float(discrete["closure_residual_mm"]),
+            "maximum_pitch_error_mm": float(discrete["maximum_pitch_error_mm"]),
+            "final_error_mm": float(discrete["closure_residual_mm"]),
         },
         "tangent_points": {
             "A": point_a,
@@ -694,6 +629,17 @@ def calculate_chain_drive_geometry(
             "D": point_d,
             "F": point_f,
             "E": point_e,
+        },
+        "roller_centers": discrete["roller_centers"],
+        "link_poses": discrete["link_poses"],
+        "solver": {
+            "method": "exact rigid-link chord closure",
+            "continuous_path_role": "initial estimate and roller-center locus only",
+            "closure_condition": "||P_N-P_0|| -> 0",
+            "pitch_constraint": "||P_(i+1)-P_i|| = p",
+            "closure_residual_mm": float(discrete["closure_residual_mm"]),
+            "maximum_pitch_error_mm": float(discrete["maximum_pitch_error_mm"]),
+            "link_count_search_radius": int(link_count_search_radius),
         },
     }
 
@@ -892,11 +838,9 @@ def plot_chain_drive(result: dict) -> None:
 
     chain_path_points = build_chain_path_points(result)
 
-    roller_centers = interpolate_points_along_path(
-        path_points=chain_path_points,
-        spacing_mm=pitch_mm,
-        point_count=selected_link_count,
-    )
+    # These are the solver's exact rigid-link roller centers.  Equal arc-length
+    # interpolation would reproduce the superseded continuous-length model.
+    roller_centers = result["roller_centers"]
 
     x_values = [point[0] for point in chain_path_points]
     y_values = [point[1] for point in chain_path_points]
@@ -919,7 +863,16 @@ def plot_chain_drive(result: dict) -> None:
         x_values,
         y_values,
         linewidth=2,
-        label="Chain pitch line",
+        label="Continuous roller-center locus",
+    )
+
+    closed_roller_centers = roller_centers + roller_centers[:1]
+    ax_geometry.plot(
+        [point[0] for point in closed_roller_centers],
+        [point[1] for point in closed_roller_centers],
+        color="tab:orange",
+        linewidth=0.8,
+        label="Rigid pitch chords",
     )
 
     # Sprocket pitch circles
@@ -1108,26 +1061,43 @@ def print_results(result: dict) -> None:
     )
 
     print("\n=== CHAIN LINKS ===")
-    print(f"Theoretical link count: {chain_links['theoretical_link_count']:.2f}")
+    print(
+        "Continuous link-count estimate: "
+        f"{chain_links['theoretical_link_count']:.2f}"
+    )
     print(f"Selected link count: {chain_links['selected_link_count']}")
-    print(f"Actual chain length: {chain_links['actual_chain_length_mm']:.2f} mm")
+    print(
+        "Nominal discrete chain length (N*p): "
+        f"{chain_links['actual_chain_length_mm']:.2f} mm"
+    )
     print(f"Chain length error: {chain_links['chain_length_error_mm']:.2f} mm")
     print(f"Requires offset link: {chain_links['requires_offset_link']}")
 
     print("\n=== CORRECTED GEOMETRY ===")
     print(
         f"Corrected center distance: "
-        f"{corrected_geometry['corrected_center_distance_mm']:.2f} mm"
+        f"{corrected_geometry['corrected_center_distance_mm']:.9f} mm"
     )
     print(
         f"Center distance correction: "
-        f"{corrected_geometry['center_distance_correction_mm']:.2f} mm"
+        f"{corrected_geometry['center_distance_correction_mm']:.9f} mm"
     )
     print(
-        f"Checked chain length: "
-        f"{corrected_geometry['checked_chain_length_mm']:.2f} mm"
+        "Continuous path length at corrected center: "
+        f"{corrected_geometry['continuous_pitch_path_length_mm']:.9f} mm"
     )
-    print(f"Final error: {corrected_geometry['final_error_mm']:.10f} mm")
+    print(
+        "Continuous path minus N*p: "
+        f"{corrected_geometry['continuous_path_minus_discrete_length_mm']:.9f} mm"
+    )
+    print(
+        "Closure residual: "
+        f"{corrected_geometry['closure_residual_mm']:.12e} mm"
+    )
+    print(
+        "Maximum pitch error: "
+        f"{corrected_geometry['maximum_pitch_error_mm']:.12e} mm"
+    )
 
 
 def main() -> None:
