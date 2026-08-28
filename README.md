@@ -10,13 +10,13 @@ This project calculates the geometry of an open roller chain drive using ASA sin
 
 ## Overview
 
-In a roller chain drive, the desired center distance between two sprockets does not always correspond to a physically closable chain assembly.
+In a roller chain drive, the desired center distance between two sprockets does not always correspond to a geometrically closable assembly made from rigid chain pitches.
 
-The geometric chain path is continuous, but the actual chain length is discrete because the chain is composed of an integer number of links. As a result, after selecting the nearest feasible number of links, the original center distance usually needs to be corrected.
+The continuous pitch-line path remains useful as a geometric reference. The physical chain, however, is a discrete polygonal sequence of rigid links, so dividing the continuous path length by the pitch only estimates candidate integer link counts.
 
-This tool solves that problem by calculating the corrected center distance required to close the selected chain length exactly.
+This tool uses the continuous geometry to initialize those candidates and then adjusts the center distance by solving the rigid-link discrete closure problem. A valid solution keeps every adjacent roller-center spacing equal to the chain pitch and closes the final point onto the initial point.
 
-The project uses catalog dimensions extracted from an ASA roller chain reference table and applies analytical geometry to model the chain path over the sprocket pitch circles.
+The project uses catalog dimensions extracted from an ASA roller chain reference table together with analytical geometry and numerical discrete closure.
 
 ---
 
@@ -29,13 +29,13 @@ For an open chain drive with two sprockets, the user usually defines:
 * the number of teeth of the larger sprocket;
 * the desired center distance.
 
-However, the desired center distance generates a theoretical chain path length that may not be compatible with an integer number of chain links.
+At the desired center distance, the continuous pitch-line length provides a useful estimate of how many pitches are required, but it does not prove that a chain made of rigid pitches closes.
 
 The problem is therefore:
 
-> Given the desired center distance and sprocket geometry, determine the nearest integer number of chain links and calculate the corrected center distance that closes the real chain length.
+> Given the desired center distance and sprocket geometry, estimate nearby integer link-count candidates and determine the corrected center distance for which a sequence of rigid links of pitch `p` closes geometrically.
 
-The key technical step is that the corrected center distance is obtained by solving a nonlinear geometric closure equation after the link count has been discretized.
+The corrected center distance is found from the discrete endpoint-closure residual after enforcing the pitch constraint on every link. It is not obtained by treating equality between the continuous path length and `Np` as the final physical condition.
 
 ---
 
@@ -45,13 +45,14 @@ The key technical step is that the corrected center distance is obtained by solv
 * Select chain data by ASA chain size
 * Calculate sprocket pitch diameters
 * Calculate sprocket pitch radii
-* Calculate open-chain continuous path length
-* Estimate theoretical link count
-* Select integer number of links
+* Calculate the open-chain continuous reference path
+* Estimate the continuous link count and nearby integer candidates
+* Select an integer number of links
 * Detect odd link count and offset link requirement
-* Calculate actual chain length
-* Solve corrected center distance
+* Construct the chain as rigid pitch-length segments
+* Solve the corrected center distance from discrete geometric closure
 * Calculate center distance correction
+* Report closure residual and maximum pitch error
 * Calculate tangency points for the corrected geometry
 * Plot sprocket pitch circles, chain path and roller positions
 * Estimate total chain weight from catalog weight per meter
@@ -61,7 +62,7 @@ The key technical step is that the corrected center distance is obtained by solv
 
 ## Mathematical Background
 
-For a roller chain with pitch `p` and a sprocket with `z` teeth, the sprocket pitch diameter is calculated by:
+For a roller chain with pitch `p` and a sprocket with `z` teeth, the sprocket pitch diameter is:
 
 $$
 D_p = \frac{p}{\sin\left(\frac{\pi}{z}\right)}
@@ -73,7 +74,7 @@ $$
 \Delta r = r_2 - r_1
 $$
 
-the continuous chain path length is:
+the corresponding continuous pitch-line path length is:
 
 $$
 C_i(a) =
@@ -84,51 +85,56 @@ C_i(a) =
 2\sqrt{a^2-\Delta r^2}
 $$
 
-The physically valid domain is:
+with the physically valid domain:
 
 $$
 a > |\Delta r|
 $$
 
-This condition ensures that the external tangent spans exist between the two sprocket pitch circles and that the square-root term remains real.
+This domain ensures that the external tangent spans exist between the two sprocket pitch circles and that the square-root term remains real.
 
-The theoretical number of links is:
-
-$$
-n_i = \frac{C_i}{p}
-$$
-
-The selected number of links is obtained by rounding the theoretical value:
+The continuous formulation is retained as a reference and as an initial estimate only. At the desired center distance, the continuous link-count estimate is:
 
 $$
-n = \mathrm{round}(n_i)
+N_{\mathrm{cont}} = \frac{C_i(a_{\mathrm{desired}})}{p}
 $$
 
-The actual chain length is:
+Nearby integer values of `N` are then evaluated as discrete link-count candidates. The physical chain is not the continuous curve itself; it is a sequence of points `\mathbf P_0, \mathbf P_1, \ldots, \mathbf P_N` joined by rigid segments. Every link must satisfy:
 
 $$
-C = np
+\left\|\mathbf P_{i+1}-\mathbf P_i\right\| = p,
+\qquad i=0,\ldots,N-1
 $$
 
-After the link count is selected, the corrected center distance is obtained by solving the nonlinear error function:
+For each candidate `N` and trial center distance, the solver advances the rigid pitches over the modeled chain locus. The corrected center distance is the value for which the discrete chain closes:
 
 $$
-f(a) = C_i(a) - C
+\mathbf P_N = \mathbf P_0
 $$
 
-The corrected center distance `af` satisfies:
+Numerically, the closure residual is:
 
 $$
-f(a_f) = 0
+R(a;N) = \left\|\mathbf P_N(a)-\mathbf P_0(a)\right\|
 $$
 
-which means:
+and the solver seeks:
 
 $$
-C_i(a_f) = C
+R(a;N) \rightarrow 0
 $$
 
-![Error function for corrected center distance](docs/figures/figure_3.png)
+while retaining the pitch constraint for every segment. A complementary diagnostic is the maximum pitch error:
+
+$$
+e_{p,\max} =
+\max_i
+\left|
+\left\|\mathbf P_{i+1}-\mathbf P_i\right\|-p
+\right|
+$$
+
+Therefore, `C_i(a)=Np` is not used as the final physical closure equation. It describes equality of a continuous curve length and a nominal chain length, whereas the validated solution requires discrete rigid-link closure.
 
 ---
 
@@ -148,20 +154,22 @@ The following example evaluates an ASA 80 roller chain drive.
 
 ### Calculated Results
 
-| Result                          |      Value |
-| ------------------------------- | ---------: |
-| Smaller sprocket pitch diameter |   90.16 mm |
-| Larger sprocket pitch diameter  |  162.37 mm |
-| Theoretical link count          |      47.24 |
-| Selected link count             |         47 |
-| Actual chain length             | 1193.80 mm |
-| Corrected center distance       |  396.92 mm |
-| Center distance correction      |   -3.08 mm |
-| Requires offset link            |       True |
+| Result                          |               Value |
+| ------------------------------- | ------------------: |
+| Smaller sprocket pitch diameter |            90.16 mm |
+| Larger sprocket pitch diameter  |           162.37 mm |
+| Continuous link-count estimate  |               47.24 |
+| Selected link count             |                  47 |
+| Actual chain length             |          1193.80 mm |
+| Offset link required            |                True |
+| Corrected center distance       |    398.338658801 mm |
+| Center distance correction      |     -1.661341199 mm |
+| Closure residual                |       3.16e-10 mm |
+| Maximum pitch error             |       3.08e-10 mm |
 
-For this case, the desired center distance of 400.00 mm does not close the selected 47-link chain. The corrected center distance is 396.92 mm, meaning the center distance must be reduced by 3.08 mm.
+For this case, the desired center distance of 400.00 mm does not close the selected 47-link rigid chain. The discrete solver gives a corrected center distance of approximately 398.338658801 mm, so the center distance must be reduced by approximately 1.661341199 mm.
 
-Because the selected number of links is odd, the physical chain assembly requires an offset link.
+The closure residual and maximum pitch error are both near machine precision, confirming discrete geometric closure with every link constrained to the 25.40 mm pitch. Because the selected number of links is odd, the physical chain assembly requires an offset link.
 
 ---
 
@@ -347,11 +355,11 @@ The model assumes:
 * single-strand roller chain;
 * coplanar sprockets;
 * parallel sprocket axes;
-* chain path represented by roller center trajectory;
+* roller centers constrained to the modeled pitch-circle and external-tangent locus;
 * sprockets represented by pitch circles;
-* external tangent spans;
-* integer number of links;
-* nearest-integer link count selection.
+* every adjacent roller-center pair separated by the fixed pitch `p`;
+* an integer number of links;
+* integer candidates estimated from the continuous link count.
 
 Odd link counts are mathematically accepted. However, when the selected number of links is odd, the physical assembly requires an offset link.
 
@@ -389,11 +397,13 @@ For real machine design, the geometric result must be combined with manufacturer
 * [x] ASA chain catalog loading
 * [x] Chain size selection
 * [x] Sprocket pitch diameter calculation
-* [x] Open chain path length calculation
-* [x] Theoretical link count calculation
-* [x] Integer link count selection
+* [x] Open-chain continuous reference path calculation
+* [x] Continuous link-count estimation
+* [x] Integer link-count candidate selection
 * [x] Offset link requirement detection
+* [x] Rigid-link discrete closure solver
 * [x] Corrected center distance calculation
+* [x] Closure residual and pitch-error validation
 * [x] Tangency point calculation
 * [x] Chain path plotting
 * [x] Roller distribution plotting
